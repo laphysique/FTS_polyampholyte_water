@@ -1,4 +1,11 @@
-# Dec 8, 2020
+# ver1 Dec 10, 2020
+# - Modify parameter definition: a -> inva2 = 1/a^2
+# - Allow dx to be an independent variable; not necessarily dx=a
+# - Add a function for CL run
+# - Separate input/output functions to CL_io_control.py
+
+
+# ver0 Dec 8, 2020
 # - Field theoretic simulation (FTS) code for an explicit-solvent 
 #   polyampholyte solution
 # - npoly polyampholytes, nw solvent (water) molecules
@@ -14,12 +21,14 @@ import os
 import sys
 
 import CL_seq_list as sl
+import CL_io_control as io
+
 
 # Bond length = 1
 #----------------------- Define polymer solution as a class object -----------------------
 class PolySol:
     def __init__( self, lb, sigma, npoly, nw, \
-                  v0=0.0068, kappa=0, Nx=24, a=1./np.sqrt(6) ):
+                  v0=0.0068, kappa=0, Nx=24, inva2=6, dx=None ):
         self.lb  = lb                  # Reduced Bjerrum length 
         self.sig = np.array(sigma)     # Charge sequence
         self.N   = self.sig.shape[0]   # Length of polyampholyte
@@ -27,11 +36,11 @@ class PolySol:
         self.nw  = nw                  # Number of water molecules
         self.v0  = v0                  # excluded volume    
         self.ksc = kappa               # Debye screening wave number 
-        self.a   = a                   # Smearing length
+        self.a   = 1/np.sqrt(inva2)    # Smearing length
         self.Nx  = Nx                  # Number of grid points: the resolution
-        self.L   = a*Nx                # Box edge length
+        self.dx  = self.a if dx is None else dx # distance between two n.n. grid points
+        self.L   = self.dx*Nx          # Box edge length
         self.V   = self.L**3           # Box volume
-        self.dx  = self.L/Nx           # distance between two n.n. grid points
         self.dV  = self.dx**3          # delta volume of each grid
      
         if np.sum(self.sig) != 0 :
@@ -39,16 +48,16 @@ class PolySol:
             return -1    
 
         # wave number vectors of the grid space
-        ks1d    = 2*np.pi*np.fft.fftfreq( Nx,self.dx ) # k's in 1D reciprocal space
-        self.kz = np.tile(ks1d, (Nx, Nx, 1))  # 3D array with kz[i,j,l] = ksld[l]
+        ks1d    = 2*np.pi*np.fft.fftfreq(self.Nx,self.dx) # k's in 1D reciprocal space
+        self.kz = np.tile(ks1d, (self.Nx,self.Nx,1)) # 3D array with kz[i,j,l] = ksld[l]
         self.kx = np.swapaxes( self.kz, 0, 2) # 3D array with kx[i,j,l] = ksld[i]
         self.ky = np.swapaxes( self.kz, 1, 2) # 3D array with ky[i,j,l] = ksld[j]
         self.k2 = self.kx*self.kx + self.ky*self.ky + self.kz*self.kz # 3D array of k*k
          
-        self.Gamma   = np.exp(-self.k2*a*a/2)  # Gaussian smearing
+        self.Gamma   = np.exp(-self.k2*self.a**2/2)  # Gaussian smearing
         self.Prop    = np.exp(-self.k2/6 )     # Gaussian chain n.n propagator
-        self.GT2_w   = ( self.k2*a*a/3 - 1/2 )*self.Gamma  # smearing in pressure
-        self.GT2_psi = ( self.k2*a*a/3 - 1/6 )*self.Gamma  # smearing in pressure
+        self.GT2_w   = ( self.k2*self.a**2/3 - 1/2 )*self.Gamma  # smearing in pressure
+        self.GT2_psi = ( self.k2*self.a**2/3 - 1/6 )*self.Gamma  # smearing in pressure
 
 
         # Gaussian chain correlation functions in the k-space
@@ -94,7 +103,7 @@ class PolySol:
 
     # Obtain molecule densities from fields
     def calc_densities( self, w, psi, q_output=False ):
-        w_s   = ift( self.Gamma*ft(w)  ) 
+        w_s   = ift( self.Gamma*ft(w)  )
         psi_s = ift( self.Gamma*ft(psi)  )    
 
         # Polymer density
@@ -103,6 +112,7 @@ class PolySol:
         qF, qB = self.calc_prop(PSI)
         qs     = qF*qB*np.exp(PSI)
         Qp     = np.sum(qF[-1]) * self.dV/ self.V
+        #print('Qp', np.sum(qF[-1]))
         rhop   = self.np/self.V/Qp * np.sum(qs, axis=0) 
         rhocp  = self.np/self.V/Qp * qs.T.dot(self.sig).T 
 
@@ -143,11 +153,12 @@ def CL_step_SI(w, psi, PS, M_inv, dt, useSI=True):
         w   += dw
         psi += dpsi
 
-    w   -= np.mean(w) + 1j*(PS.np*PS.N+PS.nw)/(PS.V*PS.v0) 
-    psi -= np.mean(psi)
+    #w   -= np.mean(w) #+ 1j*(PS.np*PS.N+PS.nw)/(PS.V*PS.v0)*PS.dV 
+    #psi -= np.mean(psi)
 
     return w , psi
  
+
 # get M_inv for semi-implicit CL integration method
 def get_M_inv( PS, dt):
     K11 = PS.Gamma*PS.Gamma* ( PS.np*PS.Gdd + PS.nw)/PS.V
@@ -195,114 +206,22 @@ def get_pressure( w, psi, PS ):
 
     
 
-#-------------------------------- Input/Output functions ---------------------------------
-
-# Write to file:
-def save_a_snapshot(w, psi, PS, seqname, istep, dt, dirname=None):
-    par_info = '_' + seqname + \
-               '_lb'   + str(PS.lb) + \
-               '_np'   + str(int(PS.np)) + \
-               '_nw'   + str(int(PS.nw)) + \
-               '_v'    + str(PS.v0) + \
-               '_kscr' + str(PS.ksc) + \
-               '_a'    + str(PS.a) + \
-               '_Nx'   + str(int(PS.Nx)) + \
-               '_dt'   + str(dt) 
-    
-    if dirname==None:
-        dirname = './results/All_steps_of' + par_info 
-
-    if os.path.isdir(dirname):
-        pass
-    else:
-        os.makedirs(dirname) 
-               
-    fields = np.zeros(( Nx*Nx*Nx, 7 ))
-    for i in range(Nx):
-        for j in range(Nx):
-            for k in range(Nx):
-                ii =  Nx*Nx*i + Nx*j + k
-                fields[ ii, 0:3] = [i, j, k]
-                fields[ ii, 3 ]  = w[i,j,k].real
-                fields[ ii, 4 ]  = w[i,j,k].imag  
-                fields[ ii, 5 ]  = psi[i,j,k].real
-                fields[ ii, 6 ]  = psi[i,j,k].imag  
-
-    fname = str(int(istep)) + 'th_step_of' + parinfo 
-    fmt   = ' '.join(['%i']*3 + ['%.8f']*4)
-    hdr   = '   x      y      z   ' + \
-            '     Re[w]          Im[w]          Re[psi]          Im[psi]'  
-
-    np.savetxt( fname, fields, fmt=fmt, header=hdr)
-
-    return par_info, dirname
-
-# Read from file
-def read_a_snapshos( info=None, dir_and_file=None, make_PS=False ):
-    if info is not None:
-        istep, lb, npoly, nw, v, ksc, a, Nx, dt = info
-  
-        par_info = '_' + seqname + \
-                   '_lb'   + str(lb) + \
-                   '_np'   + str(int(npoly)) + \
-                   '_nw'   + str(int(nw)) + \
-                   '_v'    + str(v) + \
-                   '_kscr' + str(ksc) + \
-                   '_a'    + str(a) + \
-                   '_Nx'   + str(int(Nx)) + \
-                   '_dt'   + str(dt) 
-
-    if dirname==None:
-        dirname = './results/All_steps_in' + par_info 
-        fname   = str(int(istep)) + 'th_step_of' + parinfo + '.txt'
-    elif dir_and_file is not None:
-        dirname, fname = dir_and_file  
-        istep = int( fname[0:fname.index('th')] )
-        all_info = dirname[dirname.index('_lb')+3:].split('_')        
-        lb    = float(all_info[0])
-        npoly = int(  all_info[1][2:])
-        nw    = int(  all_info[2][2:]) 
-        v     = float(all_info[3][1:]) 
-        ksc   = float(all_info[4][4:])  
-        #a    = float(all_info[5][1:])  
-        Nx    = int(  all_info[6][2:])
-        dt    = float(all_info[7][2:])
-
-    else:
-        print('Error: invalid file name')
-        return -1        
-
-
-    PSI = np.loadtxt(dirname + '/' + fname)
-    w   = (PSI[:,3] + ij*PSI[:,4]).reshape((Nx,Nx,Nx))
-    psi = (PSI[:,5] + ij*PSI[:,6]).reshape((Nx,Nx,Nx))
-
-    if make_PS:
-        sig = sl.get_the_charge(seqname)
-        PS = PolySol(lb, sig, npoly, nw, v0=v, kappa=ksc, Nx=Nx)   
- 
-        return w, psi, dt, istep, PS
-   
-    else:
-        return w, psi, dt, istep
-
-
 #------------------------------------- Main function -------------------------------------
 
 if __name__ == "__main__":
   
     # CL time step
     dt = 0.001            # time interval in simulation
-    nT = 100000           # total number of time steps
-    t_prod = int(0.5*nT)  # sampling when t > t_prod
+    nT = 10000           # total number of time steps
+    t_prod = int(0.2*nT)  # sampling when t > t_prod
     dT_snapshot = 10      # time interval between two snapshots
 
     # charge sequence
     seqname = sys.argv[1]
     sig, N, the_seq= sl.get_the_charge(seqname)
     print(the_seq, N)
-    lb = 2
-    npoly = 20
+    lb = 1
+    npoly = 4
     nw    = 0    
  
     # polymer solution object
@@ -312,10 +231,10 @@ if __name__ == "__main__":
                '_np'   + str(int(PS.np)) + \
                '_nw'   + str(int(PS.nw)) + \
                '_v'    + str(PS.v0) + \
-               '_kscr' + str(PS.ksc) + \
-               '_a'    + str(PS.a) + \
-               '_Nx'   + str(int(PS.Nx)) + \
-               '_dt'   + str(dt) 
+               '_kscr'    + str(PS.ksc) + \
+               '_invasq' + str(1/PS.a**2) + \
+               '_Nx'      + str(int(PS.Nx)) + \
+               '_dt'      + str(dt) 
 
 
     # initialization
@@ -324,20 +243,24 @@ if __name__ == "__main__":
     psi = 0.001*np.random.randn( PS.Nx,PS.Nx,PS.Nx ) + \
           1j*0.001*np.random.randn( PS.Nx,PS.Nx,PS.Nx )
 
-    w   -= np.mean(w) + 1j*(PS.np*PS.N+PS.nw)/(PS.V*PS.v0) 
-    psi -= np.mean(psi)
+    #w   -= np.mean(w) # + 1j*(PS.np*PS.N+PS.nw)/(PS.V*PS.v0)*PS.dV 
+    #psi -= np.mean(psi)
 
     Minv = get_M_inv( PS, dt)
     for t in range(t_prod):
+        if t %100 == 0:
+            print(t)
         #print(t, np.max(np.abs(w)), np.max(np.abs(psi)), np.mean(w), np.mean(psi)) 
         CL_step_SI(w, psi, PS, Minv, dt, useSI=False)        
        
     muPI = open('muPI' + par_info + '.txt', 'w')
     muPI.write( '# mu PI' )   
  
+    print('Start production run:')
+
     for t in range(t_prod, nT):
         if t % dT_snapshot == 0:
-            save_a_snapshot(w, psi, PS, seqname, t, dt)
+            io.save_a_snapshot(w, psi, PS, seqname, t, dt)
             mu = get_chem_potential(w, psi, PS)
             PI = get_pressure(w, psi, PS)
             muPI.write('{:.8f} {:.8f}'.format(mu, PI)  )                 
