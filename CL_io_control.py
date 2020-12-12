@@ -1,6 +1,9 @@
 # ver1 Dec 10, 2020
 # - The input/output functions supporting FTS_polyampholyte_water.py 
 
+import sys
+import os
+import numpy as np
 
 # Write to file:
 def save_a_snapshot(w, psi, PS, seqname, istep, dt, dirname=None):
@@ -10,7 +13,7 @@ def save_a_snapshot(w, psi, PS, seqname, istep, dt, dirname=None):
                '_nw'     + str(int(PS.nw)) + \
                '_v'      + str(PS.v0) + \
                '_kscr'   + str(PS.ksc) + \
-               '_invasq' + str(1/PS.a**2) + \
+               '_invasq' + str(round(1/PS.a**2)) + \
                '_Nx'     + str(int(PS.Nx)) + \
                '_dt'     + str(dt) 
     
@@ -21,7 +24,9 @@ def save_a_snapshot(w, psi, PS, seqname, istep, dt, dirname=None):
         pass
     else:
         os.makedirs(dirname) 
-               
+    
+
+    Nx = PS.Nx           
     fields = np.zeros(( Nx*Nx*Nx, 7 ))
     for i in range(Nx):
         for j in range(Nx):
@@ -33,12 +38,12 @@ def save_a_snapshot(w, psi, PS, seqname, istep, dt, dirname=None):
                 fields[ ii, 5 ]  = psi[i,j,k].real
                 fields[ ii, 6 ]  = psi[i,j,k].imag  
 
-    fname = str(int(istep)) + 'th_step_of' + parinfo 
-    fmt   = ' '.join(['%i']*3 + ['%.8f']*4)
-    hdr   = '   x      y      z   ' + \
-            '     Re[w]          Im[w]          Re[psi]          Im[psi]'  
+    fname = str(int(istep)) + 'th_step_of' + par_info + '.txt'
+    fmt   = ' '.join(['2%d']*3 + ['%.8e']*4)
+    hdr   = ' x  y  z ' + \
+            '    Re[w]        Im[w]        Re[psi]        Im[psi]'  
 
-    np.savetxt( fname, fields, fmt=fmt, header=hdr)
+    np.savetxt( dirname + '/' + fname, fields, fmt=fmt, header=hdr)
 
     return par_info, dirname
 
@@ -59,7 +64,7 @@ def read_a_snapshos( info=None, dir_and_file=None, make_PS=False ):
 
     if dirname==None:
         dirname = './results/All_steps_in' + par_info 
-        fname   = str(int(istep)) + 'th_step_of' + parinfo + '.txt'
+        fname   = str(int(istep)) + 'th_step_of' + par_info + '.txt'
     elif dir_and_file is not None:
         dirname, fname = dir_and_file  
         istep = int( fname[0:fname.index('th')] )
@@ -69,7 +74,7 @@ def read_a_snapshos( info=None, dir_and_file=None, make_PS=False ):
         nw    = int(  all_info[2][2:]) 
         v     = float(all_info[3][1:]) 
         ksc   = float(all_info[4][4:])  
-        #a    = float(all_info[5][1:])  
+        inva2 = float(all_info[5][6:])  
         Nx    = int(  all_info[6][2:])
         dt    = float(all_info[7][2:])
 
@@ -84,7 +89,7 @@ def read_a_snapshos( info=None, dir_and_file=None, make_PS=False ):
 
     if make_PS:
         sig = sl.get_the_charge(seqname)
-        PS = PolySol(lb, sig, npoly, nw, v0=v, kappa=ksc, Nx=Nx)   
+        PS = PolySol(lb, sig, npoly, nw, v0=v, kappa=ksc, inva2=inva2, Nx=Nx)   
  
         return w, psi, dt, istep, PS
    

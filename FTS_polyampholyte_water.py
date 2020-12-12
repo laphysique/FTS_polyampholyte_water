@@ -179,7 +179,7 @@ def get_chem_potential( w, psi, PS ):
     rhop, rhocp, rhow, Qp, Qw, _, _, _ = PS.calc_densities(w, psi, q_output=True )
 
     mu_p = np.log( PS.np ) + 1 - np.log( Qp) 
-    mu_w = np.log( PS.nw ) + 1 - np.log( Qw) 
+    mu_w = np.log( PS.nw + (PS.nw==0)) + 1 - np.log( Qw) 
     
 
     return mu_p, mu_w
@@ -198,7 +198,7 @@ def get_pressure( w, psi, PS ):
                np.tensordot( PS.sig ,psi_s ,axes=0)           )   
 
     lap_qF =  np.array([  PS.lap( np.exp(PSI[i])*qF[i] ) for i in range(PS.N)] )
-    term1 = np.sum(np/(9*Qp) * qB*lap_qF)
+    term1 = np.sum(PS.np/(9*Qp) * qB*lap_qF)
     term2 = 1j*np.sum( (rhop+rhow)*ift( PS.GT2_w*ftw ) )
     term3 = 1j*np.sum( rhocp*ift( PS.GT2_psi*ftpsi )   )
 
@@ -232,7 +232,7 @@ if __name__ == "__main__":
                '_nw'   + str(int(PS.nw)) + \
                '_v'    + str(PS.v0) + \
                '_kscr'    + str(PS.ksc) + \
-               '_invasq' + str(1/PS.a**2) + \
+               '_invasq' + str(round(1/PS.a**2)) + \
                '_Nx'      + str(int(PS.Nx)) + \
                '_dt'      + str(dt) 
 
@@ -249,21 +249,26 @@ if __name__ == "__main__":
     Minv = get_M_inv( PS, dt)
     for t in range(t_prod):
         if t %100 == 0:
-            print(t)
+            print('t=' + str(t), flush=True)
         #print(t, np.max(np.abs(w)), np.max(np.abs(psi)), np.mean(w), np.mean(psi)) 
         CL_step_SI(w, psi, PS, Minv, dt, useSI=False)        
        
     muPI = open('muPI' + par_info + '.txt', 'w')
-    muPI.write( '# mu PI' )   
+    muPI.write( '#     mu_p          mu_w          PI \n' )   
  
     print('Start production run:')
 
     for t in range(t_prod, nT):
         if t % dT_snapshot == 0:
+            print('t=' + str(t), flush=True)
             io.save_a_snapshot(w, psi, PS, seqname, t, dt)
-            mu = get_chem_potential(w, psi, PS)
+            mup, muw = get_chem_potential(w, psi, PS)
             PI = get_pressure(w, psi, PS)
-            muPI.write('{:.8f} {:.8f}'.format(mu, PI)  )                 
-    
+            muPI.write('{:.8e} {:.8e} {:.8e}'.format(mup, muw, PI)  )                 
+            muPI.write('\n')
+            muPI.flush()    
+
         CL_step_SI(w, psi, PS, Minv, dt) 
-         
+    
+    muPI.close()
+     
