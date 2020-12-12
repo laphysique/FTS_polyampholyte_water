@@ -251,7 +251,7 @@ if __name__ == "__main__":
         if t %100 == 0:
             print('t=' + str(t), flush=True)
         #print(t, np.max(np.abs(w)), np.max(np.abs(psi)), np.mean(w), np.mean(psi)) 
-        CL_step_SI(w, psi, PS, Minv, dt, useSI=False)        
+        #CL_step_SI(w, psi, PS, Minv, dt, useSI=False)        
        
     muPI = open('muPI' + par_info + '.txt', 'w')
     muPI.write( '#     mu_p          mu_w          PI \n' )   
@@ -268,7 +268,7 @@ if __name__ == "__main__":
             muPI.write('\n')
             muPI.flush()    
 
-        CL_step_SI(w, psi, PS, Minv, dt) 
+        #CL_step_SI(w, psi, PS, Minv, dt) 
     
     muPI.close()
      
