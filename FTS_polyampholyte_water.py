@@ -68,7 +68,7 @@ class PolySol:
                          for n in range(self.N)]) 
         Tcc[0] /= 2
 
-        Tdd = 2*np.arange(N,0,-1)
+        Tdd = 2*np.arange(self.N,0,-1)
         Tdd[0] /= 2   
  
         mcd = np.kron(self.sig, np.ones(self.N)).reshape((self.N, self.N))
