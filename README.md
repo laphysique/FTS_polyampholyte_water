@@ -8,3 +8,15 @@ Danielsen S P O et al, PNAS 116 8224 (2019)
 Pal T, Wessén J, Das S, & Chan H S, arXiv:2006.12776 (2020)  
 
 ver0: polyampholyte and small molecule must be neutral. 
+
+Direct single sequence canonical ensemble calculation:
+
+<tt>python3 FTS_polyampholyte_water [seq name]</tt>
+
+A folder below directory <tt>./results/</tt> will be constrcuted and all field snapshots will be stored in the folder as .txt files
+
+To analyze the field snapshots, e.g. calculating sysytem mass densities and charge densities, do:
+
+<tt>python3 CL_io_control [directory of the field snapshots] </tt>
+
+
